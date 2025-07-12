@@ -7,4 +7,21 @@ requires-python = ">=3.13"
 dependencies = [
     "dbt-core>=1.9.6",
     "dbt-postgres>=1.9.0",
+    "loguru>=0.7.3",
+    "pydantic>=2.11.5",
 ]
+
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+    "flake8>=7.3.0",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "taskipy>=1.14.1",
+]
+
+[tool.taskipy.tasks]
+format = "black ."
+lint = "flake8 ."
+test = "pytest"
+coverage = "pytest --cov=config-local"
