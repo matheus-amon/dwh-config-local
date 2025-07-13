@@ -5,9 +5,11 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "dbt-bigquery>=1.10.0",
     "dbt-core>=1.9.6",
-    "dbt-postgres>=1.9.0",
     "duckdb>=1.3.2",
+    "google-cloud-bigquery>=3.34.0",
+    "google-cloud-storage>=2.19.0",
     "loguru>=0.7.3",
     "numpy>=2.3.1",
     "pandas>=2.3.1",
@@ -19,6 +21,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "dbt-postgres>=1.9.0",
     "flake8>=7.3.0",
     "flake8-pyproject>=1.2.3",
     "isort>=6.0.1",
@@ -32,6 +35,7 @@ format = "isort . && black ."
 lint = "flake8 ."
 test = "pytest"
 coverage = "pytest --cov=src --cov-report=html --cov-report=term"
+cov = "coverage report"
 
 [tool.flake8]
 max-line-length = 120
