@@ -85,5 +85,3 @@ if __name__ == "__main__":
     start_date = datetime(2025, 7, 1)
     end_date = datetime(2025, 7, 11)
     all_quotes = get_quotes(start_date, end_date)
-    for quote in all_quotes:
-        logger.info(quote)
