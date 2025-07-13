@@ -1,8 +1,7 @@
 [project]
 name = "config-local"
 version = "0.1.0"
-description = "Add your description here"
-readme = "README.md"
+description = "Data platform project leveraging Google Cloud Platform (GCP) for data lake and data warehouse implementation. Utilizes BigQuery as the data warehouse and Google Cloud Storage as the data lake, with dbt for data transformation and airflow for orchestration."
 requires-python = ">=3.13"
 dependencies = [
     "dbt-bigquery>=1.10.0",
