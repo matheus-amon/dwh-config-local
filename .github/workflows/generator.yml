@@ -1,0 +1,131 @@
+name: generator
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Test the telemetry generator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      # Only the load step needs a database, and it only needs it because the raw layer has to
+      # land somewhere with types and constraints. Generating and exporting the CSVs does not.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: saas_dw
+          POSTGRES_USER: saas
+          POSTGRES_PASSWORD: saas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U saas -d saas_dw"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      POSTGRES_DB: saas_dw
+      POSTGRES_USER: saas
+      POSTGRES_PASSWORD: saas
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: 5432
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install
+        run: uv sync --frozen
+
+      # The market-data helpers have their own dependencies and their own tests; this project
+      # also carries the telemetry generator.
+      - name: Run the tests
+        run: uv run pytest -q
+
+      - name: Generate and load the raw layer
+        # A small volume on purpose: this job proves the schema contract holds end to end, not
+        # that the generator can produce a million events. Generation is vectorised and takes
+        # about a second at this size.
+        run: |
+          uv run python -m src.telemetry_lab.cli generate --output-dir ci_raw --events 50000 --accounts 500
+          uv run python -m src.telemetry_lab.cli load --input-dir ci_raw
+
+      - name: Check the raw layer satisfies the warehouse's contract
+        run: |
+          uv run python - <<'PY'
+          import psycopg
+
+          # Mirrors the assertions in dwh-dbt's source definitions. If the generator's schema
+          # drifts from what the warehouse declares, it fails here rather than as a dbt test
+          # failure in another repo — which is the whole point of generating the raw layer in
+          # CI instead of committing it.
+          expected = {
+              "raw_plans": ["plan_code", "plan_name", "monthly_price_usd", "included_seats",
+                            "billing_interval", "tier_rank"],
+              "raw_accounts": ["account_id", "account_name", "domain", "industry", "employee_band",
+                               "country_code", "region", "signed_up_at", "plan_code_at_signup",
+                               "seats", "status", "churned_at"],
+              "raw_users": ["user_id", "account_id", "email", "full_name", "role", "is_admin",
+                            "created_at", "last_seen_at"],
+              "raw_subscriptions": ["subscription_id", "account_id", "plan_code", "billing_interval",
+                                    "seats", "discount_pct", "mrr_usd", "started_at", "ended_at",
+                                    "ended_reason"],
+              "raw_product_events": ["event_id", "account_id", "user_id", "event_name", "feature",
+                                     "platform", "session_id", "country_code", "event_ts",
+                                     "event_date"],
+          }
+
+          with psycopg.connect() as conn, conn.cursor() as cur:
+              for table, columns in expected.items():
+                  cur.execute(
+                      "select column_name from information_schema.columns "
+                      "where table_schema = 'raw' and table_name = %s", (table,)
+                  )
+                  actual = [r[0] for r in cur.fetchall()]
+                  if actual != columns:
+                      raise SystemExit(f"{table}: schema drift\n  expected {columns}\n  actual   {actual}")
+
+                  cur.execute(f'select count(*) from raw.{table}')
+                  count = cur.fetchone()[0]
+                  if count == 0:
+                      raise SystemExit(f"{table}: loaded zero rows")
+                  print(f"  {table:<22} {count:>9,} rows  {len(actual)} columns")
+
+              # The invariants the warehouse's tests assume about the data, checked where the
+              # data is produced.
+              cur.execute("select count(*) from raw.raw_subscriptions where ended_at is not null and ended_at < started_at")
+              if cur.fetchone()[0]:
+                  raise SystemExit("a subscription term ends before it starts")
+
+              cur.execute("select count(*) from raw.raw_product_events where event_ts is null")
+              if cur.fetchone()[0]:
+                  raise SystemExit("events with a null timestamp would break the incremental filter")
+
+              cur.execute("""
+                  select count(*) from raw.raw_product_events e
+                  join raw.raw_subscriptions t
+                    on t.account_id = e.account_id
+                   and t.started_at <= e.event_ts
+                   and (t.ended_at is null or e.event_ts < t.term_end_or_ended_at)
+                  limit 1
+              """.replace("t.term_end_or_ended_at", "t.ended_at"))
+              orphans = cur.fetchone()[0]
+
+          print(f"\\nschema contract holds for {len(expected)} tables")
+          PY
