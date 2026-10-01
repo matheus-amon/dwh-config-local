@@ -196,8 +196,15 @@ def _simulate_account(
     account_id: int, band: EmployeeBand, cfg: LabConfig, rng: np.random.Generator
 ) -> AccountLifecycle:
     n_weeks = cfg.history_weeks
-    last_signup_week = max(1, n_weeks - MIN_TENURE_WEEKS - 2)
-    signup_week = int(rng.integers(0, last_signup_week))
+
+    # Signups span the whole window, including the final weeks.
+    #
+    # Reserving MIN_TENURE_WEEKS at the end so that every account could theoretically reach the
+    # churn threshold left the last ~10 weeks with no signups at all, which shows up downstream
+    # as three months of zero new MRR in the movement mart and reads as a broken model rather
+    # than as a truncated one. An account that signs up in the last week simply has no
+    # opportunity to churn inside the observation window, which is the honest outcome.
+    signup_week = int(rng.integers(0, n_weeks))
     signed_up_at = _timestamp(cfg, signup_week, rng)
 
     current_plan = _weighted_plan(band.plan_weights, rng)
@@ -207,10 +214,16 @@ def _simulate_account(
     engagement = np.zeros(n_weeks, dtype=float)
     noise = rng.normal(1.0, WEEKLY_NOISE_SIGMA, size=n_weeks)
     decline_start: int | None = None
-    if rng.random() < DECLINE_PROBABILITY:
-        lo = signup_week + RAMP_WEEKS + 4
-        hi = max(lo + 1, n_weeks - 2)
-        decline_start = int(rng.integers(lo, min(hi, n_weeks)))
+
+    # A decline needs room to play out: enough weeks after the ramp to decay past the churn
+    # threshold. An account that signs up in the last few weeks cannot have one, which is why
+    # this is a range check rather than an unconditional draw. Without it, a signup week near
+    # the end of the window produces lo > hi and numpy raises.
+    decline_lo = signup_week + RAMP_WEEKS + 4
+    decline_hi = n_weeks - 2
+
+    if decline_lo < decline_hi and rng.random() < DECLINE_PROBABILITY:
+        decline_start = int(rng.integers(decline_lo, decline_hi))
 
     base_engagement = plan(current_plan).engagement_base
     for w in range(signup_week, n_weeks):
