@@ -1,18 +1,20 @@
 [project]
 name = "config-local"
-version = "0.1.0"
+version = "0.2.0"
 description = "Data platform project leveraging Google Cloud Platform (GCP) for data lake and data warehouse implementation. Utilizes BigQuery as the data warehouse and Google Cloud Storage as the data lake, with dbt for data transformation and airflow for orchestration."
 requires-python = ">=3.13"
 dependencies = [
     "dbt-bigquery>=1.10.0",
     "dbt-core>=1.9.6",
     "duckdb>=1.3.2",
+    "faker>=37.0.0",
     "google-cloud-bigquery>=3.34.0",
     "google-cloud-storage>=2.19.0",
     "loguru>=0.7.3",
     "numpy>=2.3.1",
     "pandas>=2.3.1",
     "polars>=1.31.0",
+    "psycopg[binary]>=3.2.0",
     "pyarrow>=20.0.0",
     "pydantic>=2.11.5",
 ]
@@ -35,6 +37,22 @@ lint = "flake8 ."
 test = "pytest"
 coverage = "pytest --cov=src --cov-report=html --cov-report=term"
 cov = "coverage report"
+
+# Synthetic B2B SaaS telemetry generator. Feeds the `raw` schema of the local Postgres that
+# [dwh-dbt](https://github.com/matheus-amon/dwh-dbt) reads as its sources.
+#
+# Not a console script: this project uses a src layout without being installed, so the module is
+# invoked as `python -m`.
+telemetry-generate = "python -m src.telemetry_lab.cli generate"
+telemetry-load = "python -m src.telemetry_lab.cli load"
+telemetry-smoke = "python -m src.telemetry_lab.cli generate --events 50000"
+telemetry-down = "docker compose down"
+telemetry-up = "docker compose up -d"
+
+[tool.pytest.ini_options]
+# `src` is a real package here (src/__init__.py), and the existing tests import through it as
+# `from src.get_quotes import get_quotes`. The telemetry tests follow the same convention.
+testpaths = ["tests"]
 
 [tool.flake8]
 max-line-length = 120

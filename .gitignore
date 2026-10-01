@@ -10,3 +10,6 @@ wheels/
 .venv
 .env
 .coverage
+# Generated telemetry data (see src/telemetry_lab).
+data/
+.env.telemetry
