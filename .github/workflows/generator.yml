@@ -69,6 +69,8 @@ jobs:
       - name: Check the raw layer satisfies the warehouse's contract
         run: |
           uv run python - <<'PY'
+          import os
+
           import psycopg
 
           # Mirrors the assertions in dwh-dbt's source definitions. If the generator's schema
@@ -91,7 +93,13 @@ jobs:
                                      "event_date"],
           }
 
-          with psycopg.connect() as conn, conn.cursor() as cur:
+          with psycopg.connect(
+              host=os.environ["POSTGRES_HOST"],
+              port=os.environ["POSTGRES_PORT"],
+              dbname=os.environ["POSTGRES_DB"],
+              user=os.environ["POSTGRES_USER"],
+              password=os.environ["POSTGRES_PASSWORD"],
+          ) as conn, conn.cursor() as cur:
               for table, columns in expected.items():
                   cur.execute(
                       "select column_name from information_schema.columns "
